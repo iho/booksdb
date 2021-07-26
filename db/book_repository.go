@@ -9,6 +9,7 @@ import (
 type BookRepository interface {
 	AddBook(ctx context.Context, book *models.Book) (ID, error)
 	GetBook(ctx context.Context, ID ID) (*models.Book, error)
+	DeleteBook(ctx context.Context, ID ID) error
 	AllBooks(ctx context.Context) ([]*models.Book, error)
 	RemoveAllBooks(ctx context.Context) error
 	UpdateBook(

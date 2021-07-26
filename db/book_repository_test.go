@@ -1,93 +1,24 @@
 package db_test
 
 import (
-	"context"
+	"errors"
 	"testing"
-	"time"
 
 	"github.com/iho/booksdb/common"
 	"github.com/iho/booksdb/db"
 	"github.com/iho/booksdb/models"
-	"github.com/ory/dockertest/v3"
-	dc "github.com/ory/dockertest/v3/docker"
 	"github.com/stretchr/testify/suite"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type Repo struct {
-	Repo db.BookRepository
-	Name string
-}
 type BookRepositoryDBTestSuite struct {
-	suite.Suite
-	Repositories []Repo
-	Pool         *dockertest.Pool
-	Cancel       *context.CancelFunc
-	Resource     *dockertest.Resource
-	Context      context.Context
+	common.Suite
 }
 
 func (suite *BookRepositoryDBTestSuite) SetupSuite() {
-	t := suite.T()
-
-	suite.Repositories = make([]Repo, 0)
-	suite.Repositories = append(suite.Repositories, Repo{
-		Repo: db.NewMemoryBookRepository(),
-		Name: "inmemory",
-	})
-
-	if !testing.Short() {
-
-		pool, err := dockertest.NewPool("")
-		if err != nil {
-			t.Fatalf("Could not connect to docker: %s", err)
-		}
-
-		suite.Pool = pool
-
-		port := common.GetRandomPort()
-
-		dockerOptions := &dockertest.RunOptions{Repository: "mongo", Tag: "4.0", PortBindings: map[dc.Port][]dc.PortBinding{
-			dc.Port("27017/tcp"): []dc.PortBinding{{HostPort: port}},
-		}}
-
-		resource, err := pool.RunWithOptions(dockerOptions, func(config *dc.HostConfig) {
-			// set AutoRemove to true so that stopped container goes away by itself
-			config.AutoRemove = true
-			config.RestartPolicy = dc.RestartPolicy{
-				Name: "no",
-			}
-		})
-		if err != nil {
-			t.Fatalf("Could not start resource: %s", err)
-		}
-
-		suite.Resource = resource
-
-		resource.Expire(60) // Tell docker to hard kill the container in 60 seconds
-
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		suite.Cancel = &cancel
-		suite.Context = ctx
-
-		client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:"+port))
-		if err != nil {
-			t.Fatalf("Cann't connect to mongo container: %s", err)
-		}
-
-		err = client.Ping(ctx, options.Client().ReadPreference)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		suite.Repositories = append(suite.Repositories, Repo{
-			Repo: db.NewMongoDBBookRepository(client),
-			Name: "MongoDB",
-		})
-	}
+	suite.Suite.Setup()
 }
+
 func (suite *BookRepositoryDBTestSuite) TestAddBook() {
 	t := suite.T()
 	t.Parallel()
@@ -226,7 +157,33 @@ func (suite *BookRepositoryDBTestSuite) TestUpdateBookFailed() {
 	}
 }
 
-func (suite *BookRepositoryDBTestSuite) TestRemoveAllBooks() {
+func (suite *BookRepositoryDBTestSuite) TestUpdateBookFailedUpdateFn() {
+	t := suite.T()
+	t.Parallel()
+
+	for _, repo := range suite.Repositories {
+		repo := repo
+		t.Run("UpdateBookFailedUpdateFn"+repo.Name, func(t *testing.T) {
+			t.Parallel()
+			book := &models.Book{
+				Title: "Hello",
+			}
+			id, err := repo.Repo.AddBook(suite.Context, book)
+			suite.Assert().NotEmpty(id)
+			suite.Assert().NoError(err)
+
+			_, err = repo.Repo.UpdateBook(suite.Context, id,
+				func(book *models.Book) (*models.Book, error) {
+					return nil, errors.New("I am little sad error ;_;")
+				},
+			)
+			suite.Assert().Error(err)
+			suite.Assert().NotEmpty(id)
+		})
+	}
+}
+
+func (suite *BookRepositoryDBTestSuite) TestRemoveAllBooks() { //nolint:tparallel
 	t := suite.T()
 
 	for _, repo := range suite.Repositories {
@@ -244,17 +201,51 @@ func (suite *BookRepositoryDBTestSuite) TestRemoveAllBooks() {
 	}
 }
 
-func (suite *BookRepositoryDBTestSuite) TeardDownTest() {
-	if suite.Cancel != nil {
-		(*suite.Cancel)()
-	}
+func (suite *BookRepositoryDBTestSuite) TestDeleteBook() {
+	t := suite.T()
+	t.Parallel()
 
-	if suite.Pool != nil {
-		err := suite.Pool.Purge(suite.Resource)
-		if err != nil {
-			suite.T().Fatal(err)
-		}
+	for _, repo := range suite.Repositories {
+		repo := repo
+		t.Run("DeleteBooks"+repo.Name, func(t *testing.T) {
+			t.Parallel()
+
+			title := "test book"
+			book := &models.Book{
+				Title: title,
+			}
+			id, err := repo.Repo.AddBook(suite.Context, book)
+			suite.Assert().NotEmpty(id)
+			suite.Assert().NoError(err)
+
+			err = repo.Repo.DeleteBook(suite.Context, id)
+			suite.Assert().NoError(err)
+
+			_, err = repo.Repo.GetBook(suite.Context, id)
+
+			suite.Assert().Error(err)
+		})
 	}
+}
+
+func (suite *BookRepositoryDBTestSuite) TestDeleteBookFailed() {
+	t := suite.T()
+	t.Parallel()
+
+	for _, repo := range suite.Repositories {
+		repo := repo
+		t.Run("DeleteBooksFailed"+repo.Name, func(t *testing.T) {
+			t.Parallel()
+
+			wrongId := db.ID(primitive.NewObjectID().Hex())
+			err := repo.Repo.DeleteBook(suite.Context, wrongId)
+			suite.Assert().Error(err)
+		})
+	}
+}
+
+func (suite *BookRepositoryDBTestSuite) TeardDownTest() {
+	suite.Suite.TeardDown()
 }
 
 func TestBookRepositoryDBTestSuite(t *testing.T) {

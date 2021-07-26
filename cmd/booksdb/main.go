@@ -10,6 +10,7 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/iho/booksdb"
 	"github.com/iho/booksdb/db"
+	"github.com/iho/booksdb/handlers"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
@@ -30,17 +31,21 @@ func main() {
 		panic(fmt.Errorf("can't connect to database: %w", err))
 	}
 
-	server := &http.Server{
-		Addr:         fmt.Sprintf("0.0.0.0:%d", config.Port),
-		Handler:      booksdb.SetupRouter(),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
 	log = zapr.NewLogger(zapLog)
-	app := booksdb.NewApp(
-		server,
+	app := handlers.NewApp(
 		db.NewMongoDBBookRepository(client),
 		log,
 	)
-	app.Run()
+
+	server := &http.Server{
+		Addr:         fmt.Sprintf("0.0.0.0:%d", config.Port),
+		Handler:      handlers.SetupRouter(app),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	err = server.ListenAndServe()
+	if err != nil {
+		panic(err.Error())
+	}
 }

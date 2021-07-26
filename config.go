@@ -14,9 +14,9 @@ func GetConfig() Config {
 	var cfg Config
 
 	loader := aconfig.LoaderFor(&cfg, aconfig.Config{ //nolint:exhaustivestruct
-		SkipDefaults: true,
-		SkipFiles:    true,
-		SkipEnv:      true,
+		SkipDefaults: false,
+		SkipFiles:    false,
+		SkipEnv:      false,
 		SkipFlags:    true,
 		EnvPrefix:    "APP",
 		FlagPrefix:   "app",

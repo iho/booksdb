@@ -39,11 +39,23 @@ func (repo MemoryBookRepository) GetBook(ctx context.Context, id ID) (*models.Bo
 
 	book, ok := repo.Store[id]
 	if ok {
-
 		return book, nil
 	}
 
 	return nil, errors.New("book not found")
+}
+
+func (repo MemoryBookRepository) DeleteBook(ctx context.Context, id ID) error {
+	repo.StoreRW.Lock()
+	defer repo.StoreRW.Unlock()
+
+	_, ok := repo.Store[id]
+	if ok {
+		delete(repo.Store, id)
+		return nil
+	}
+
+	return errors.New("book not found")
 }
 
 func (repo MemoryBookRepository) AllBooks(ctx context.Context) ([]*models.Book, error) {
@@ -82,7 +94,7 @@ func (repo MemoryBookRepository) UpdateBook(
 
 	updatedBook, err = updateFn(book)
 	if err != nil {
-		return updatedBook, fmt.Errorf("failed to update book: %w", err)
+		return nil, fmt.Errorf("failed to update book: %w", err)
 	}
 
 	repo.Store[bookID] = updatedBook

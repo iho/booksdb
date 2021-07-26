@@ -57,6 +57,27 @@ func (repo MongoDBBookRepository) GetBook(ctx context.Context, id ID) (*models.B
 	return book, nil
 }
 
+func (repo MongoDBBookRepository) DeleteBook(ctx context.Context, id ID) error {
+	bookID, err := primitive.ObjectIDFromHex(string(id))
+	if err != nil {
+		return fmt.Errorf("ID is not a valid hex string: %w", err)
+	}
+
+	filter := bson.M{"_id": bookID}
+
+	result, err := repo.getBookCollection().DeleteOne(ctx, filter)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return fmt.Errorf("can't find a book: %w", err)
+	} else if err != nil {
+		return fmt.Errorf("some database error has occurred: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return errors.New("book not found. Nothing to delete")
+	}
+
+	return nil
+}
+
 func (repo MongoDBBookRepository) AllBooks(ctx context.Context) ([]*models.Book, error) {
 	var books []*models.Book
 
